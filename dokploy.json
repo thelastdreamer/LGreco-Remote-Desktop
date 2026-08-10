@@ -1,0 +1,32 @@
+{
+  "name": "remote-desktop",
+  "type": "docker-compose",
+  "description": "Self-hosted Remote Desktop with WebRTC streaming - Docker Desktop + Relay mode",
+  "env": ".env",
+  "domains": [
+    {
+      "host": "${DOMAIN:-localhost}",
+      "port": 8080,
+      "serviceName": "api",
+      "https": true
+    }
+  ],
+  "volumes": [
+    {
+      "name": "postgres_data",
+      "mountPath": "/var/lib/postgresql/data",
+      "size": "10Gi"
+    },
+    {
+      "name": "redis_data",
+      "mountPath": "/data",
+      "size": "1Gi"
+    }
+  ],
+  "ports": [
+    { "port": 8080, "serviceName": "api", "protocol": "http" },
+    { "port": 3478, "serviceName": "coturn", "protocol": "both" },
+    { "port": 5349, "serviceName": "coturn", "protocol": "both" },
+    { "port": "49152-65535", "serviceName": "coturn", "protocol": "udp" }
+  ]
+}

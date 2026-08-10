@@ -1,0 +1,25 @@
+# Remote Desktop
+# Build artifacts
+dist/
+bin/
+obj/
+*.exe
+*.dll
+
+# Environment
+.env
+.env.dokploy
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Docker
+postgres_data/
+redis_data/
