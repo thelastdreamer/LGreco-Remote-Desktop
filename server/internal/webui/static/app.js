@@ -39,8 +39,12 @@ function setAuth(token) {
   state.token = token || "";
   if (state.token) {
     localStorage.setItem("rd_token", state.token);
+    // chi/jwtauth reads cookie name "jwt"; iframes/WebSockets cannot send Authorization.
+    // Login also sets an HttpOnly cookie; this mirrors localStorage for already-open sessions.
+    document.cookie = `jwt=${state.token}; Path=/; SameSite=Lax; Max-Age=${72 * 60 * 60}`;
   } else {
     localStorage.removeItem("rd_token");
+    document.cookie = "jwt=; Path=/; Max-Age=0; SameSite=Lax";
   }
 }
 
@@ -192,6 +196,7 @@ async function login(username, password) {
 }
 
 function logout() {
+  fetch("/api/logout", { method: "POST" }).catch(() => {});
   setAuth("");
   state.user = null;
   state.sessions = [];
@@ -293,5 +298,6 @@ els.stopSessionBtn.addEventListener("click", async () => {
 
 renderAuth();
 if (state.token) {
+  setAuth(state.token); // ensure jwt cookie exists for embedded noVNC
   refreshBootstrap().catch(() => logout());
 }

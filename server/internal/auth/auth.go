@@ -170,3 +170,27 @@ func ParseAuthHeader(r *http.Request) string {
 	}
 	return strings.TrimPrefix(auth, "Bearer ")
 }
+
+// SetJWTCookie writes the session JWT so same-origin iframe/WebSocket
+// requests (noVNC) can authenticate without an Authorization header.
+func SetJWTCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "jwt",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int((72 * time.Hour).Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func ClearJWTCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "jwt",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}

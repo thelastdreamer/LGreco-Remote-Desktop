@@ -45,6 +45,7 @@ func NewRouter(cfg *config.Config) chi.Router {
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/register", handleRegister)
 		r.Post("/login", handleLogin)
+		r.Post("/logout", handleLogout)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware())
@@ -95,6 +96,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
+	auth.SetJWTCookie(w, token)
 	writeJSON(w, http.StatusCreated, models.LoginResponse{Token: token, User: *user})
 }
 
@@ -114,7 +116,13 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
+	auth.SetJWTCookie(w, token)
 	writeJSON(w, http.StatusOK, models.LoginResponse{Token: token, User: *user})
+}
+
+func handleLogout(w http.ResponseWriter, r *http.Request) {
+	auth.ClearJWTCookie(w)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
 }
 
 func handleMe(w http.ResponseWriter, r *http.Request) {
@@ -265,7 +273,10 @@ func handleCreateSession(cfg *config.Config, orch *orchestration.Orchestrator) h
 				{URLs: cfg.TurnServer, Username: cfg.TurnUsername, Credential: cfg.TurnPassword},
 			},
 			SignalURL: "/ws/signal",
-			ViewerURL: fmt.Sprintf("/api/sessions/%d/novnc/vnc.html?autoconnect=true&resize=remote&path=/api/sessions/%d/novnc/websockify", session.ID, session.ID),
+			ViewerURL: fmt.Sprintf(
+				"/api/sessions/%d/novnc/vnc.html?autoconnect=true&resize=remote&path=/api/sessions/%d/novnc/websockify",
+				session.ID, session.ID,
+			),
 		})
 	}
 }

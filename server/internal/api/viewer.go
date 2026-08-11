@@ -26,9 +26,25 @@ func handleGetViewer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Prefer cookie auth for iframe asset/WS loads; include jwt query as a
+	// fallback for the initial HTML document when cookie is missing.
+	token := auth.ParseAuthHeader(r)
+	if token == "" {
+		if c, err := r.Cookie("jwt"); err == nil {
+			token = c.Value
+		}
+	}
+	viewerURL := fmt.Sprintf(
+		"/api/sessions/%s/novnc/vnc.html?autoconnect=true&resize=remote&path=/api/sessions/%s/novnc/websockify",
+		sessionID, sessionID,
+	)
+	if token != "" {
+		viewerURL += "&jwt=" + url.QueryEscape(token)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{
 		"session_id": sessionID,
-		"viewer_url": fmt.Sprintf("/api/sessions/%s/novnc/vnc.html?autoconnect=true&resize=remote&path=/api/sessions/%s/novnc/websockify", sessionID, sessionID),
+		"viewer_url": viewerURL,
 	})
 }
 
@@ -63,7 +79,10 @@ func handleNoVNCProxy() http.Handler {
 		proxy.Director = func(req *http.Request) {
 			originalDirector(req)
 			req.URL.Path = targetPath
+			req.URL.RawQuery = stripAuthQuery(r.URL.Query()).Encode()
 			req.Host = targetURL.Host
+			req.Header.Del("Cookie")
+			req.Header.Del("Authorization")
 		}
 		proxy.ModifyResponse = func(resp *http.Response) error {
 			resp.Header.Del("X-Frame-Options")
@@ -87,7 +106,7 @@ func proxyWebSocket(w http.ResponseWriter, r *http.Request, containerName, targe
 		Scheme:   "ws",
 		Host:     fmt.Sprintf("%s:8081", containerName),
 		Path:     targetPath,
-		RawQuery: r.URL.RawQuery,
+		RawQuery: stripAuthQuery(r.URL.Query()).Encode(),
 	}
 	targetConn, _, err := websocket.DefaultDialer.Dial(target.String(), nil)
 	if err != nil {
@@ -133,6 +152,19 @@ func getOwnedSessionTarget(r *http.Request) (string, string, error) {
 	}
 
 	return sessionID, containerName.String, nil
+}
+
+func stripAuthQuery(values url.Values) url.Values {
+	cleaned := url.Values{}
+	for key, vals := range values {
+		if strings.EqualFold(key, "jwt") || strings.EqualFold(key, "token") || strings.EqualFold(key, "authorization") {
+			continue
+		}
+		for _, v := range vals {
+			cleaned.Add(key, v)
+		}
+	}
+	return cleaned
 }
 
 var _ = io.Copy
