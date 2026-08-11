@@ -13,6 +13,26 @@ services:
         reservations:
           memory: 128M
 
+  desktop-image:
+    labels:
+      - "traefik.enable=false"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+
+  relay-image:
+    labels:
+      - "traefik.enable=false"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+
   db:
     deploy:
       resources:

@@ -61,6 +61,16 @@ you must change the password before accessing session controls.
 Client (WPF) <-> rd-bridge (Go/Pion WebRTC) <-> Server (Go/Pion WebRTC) <-> Desktop Container (Xvfb+XFCE)
 ```
 
+## Runtime Image Seeding
+
+Dokploy builds the `api` image plus two lightweight seed services:
+
+- `desktop-image` -> builds and keeps `rd-desktop:latest` available
+- `relay-image` -> builds and keeps `rd-relay:latest` available
+
+These seed services allow the API to create on-demand session containers without requiring
+manual `docker build` commands on the server.
+
 ## Ports
 
 | Port | Service | Protocol |

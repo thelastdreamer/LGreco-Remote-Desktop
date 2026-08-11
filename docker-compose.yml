@@ -61,6 +61,24 @@ services:
       timeout: 5s
       retries: 3
 
+  desktop-image:
+    # Keep the runtime image locally available so the API can spawn per-session containers.
+    build:
+      context: ./desktop-container
+      dockerfile: Dockerfile
+    image: rd-desktop:latest
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+
+  relay-image:
+    # Keep the relay runtime image locally available for on-demand session creation.
+    build:
+      context: ./relay-container
+      dockerfile: Dockerfile
+    image: rd-relay:latest
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+
   coturn:
     image: coturn/coturn:4.6-alpine
     restart: unless-stopped
