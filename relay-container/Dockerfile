@@ -10,7 +10,7 @@ ENV TARGET_PASS=
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb x11vnc xdotool \
-    freerdp2-x11 freerdp2-shadow-sdl \
+    freerdp2-x11 \
     supervisor \
     novnc websockify \
     pulseaudio pulseaudio-utils \
