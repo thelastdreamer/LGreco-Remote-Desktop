@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -39,9 +40,9 @@ func RegisterUser(username, email, password string) (*models.User, error) {
 	user := &models.User{}
 	err = db.DB.QueryRow(
 		`INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3)
-		 RETURNING id, username, email, created_at, updated_at`,
+		 RETURNING id, username, email, password_change_required, created_at, updated_at`,
 		username, email, string(hash),
-	).Scan(&user.ID, &user.Username, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordChangeRequired, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -51,10 +52,10 @@ func RegisterUser(username, email, password string) (*models.User, error) {
 func AuthenticateUser(username, password string) (*models.User, error) {
 	user := &models.User{}
 	err := db.DB.QueryRow(
-		`SELECT id, username, email, password_hash, created_at, updated_at
+		`SELECT id, username, email, password_hash, password_change_required, created_at, updated_at
 		 FROM users WHERE username = $1`,
 		username,
-	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.PasswordChangeRequired, &user.CreatedAt, &user.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("invalid credentials")
 	}
@@ -65,6 +66,65 @@ func AuthenticateUser(username, password string) (*models.User, error) {
 		return nil, errors.New("invalid credentials")
 	}
 	return user, nil
+}
+
+func EnsureDefaultAdmin(cfg *config.Config) error {
+	if cfg.DefaultAdminUsername == "" || cfg.DefaultAdminPassword == "" {
+		return nil
+	}
+
+	var existingID int64
+	err := db.DB.QueryRow(`SELECT id FROM users WHERE username = $1`, cfg.DefaultAdminUsername).Scan(&existingID)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("check default admin: %w", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(cfg.DefaultAdminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash default admin password: %w", err)
+	}
+
+	_, err = db.DB.Exec(
+		`INSERT INTO users (username, email, password_hash, password_change_required)
+		 VALUES ($1, $2, $3, true)`,
+		cfg.DefaultAdminUsername, cfg.DefaultAdminEmail, string(hash),
+	)
+	if err != nil {
+		return fmt.Errorf("create default admin: %w", err)
+	}
+
+	return nil
+}
+
+func ChangePassword(userID int64, currentPassword, newPassword string) error {
+	if len(strings.TrimSpace(newPassword)) < 10 {
+		return errors.New("new password must be at least 10 characters")
+	}
+
+	var passwordHash string
+	err := db.DB.QueryRow(`SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&passwordHash)
+	if err != nil {
+		return err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(currentPassword)); err != nil {
+		return errors.New("current password is incorrect")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.DB.Exec(
+		`UPDATE users
+		 SET password_hash = $2, password_change_required = false, updated_at = NOW()
+		 WHERE id = $1`,
+		userID, string(hash),
+	)
+	return err
 }
 
 func GenerateToken(user *models.User) (string, error) {

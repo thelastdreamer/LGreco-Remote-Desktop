@@ -20,6 +20,9 @@ type Config struct {
 	TurnPassword   string
 	StunServer     string
 	DockerNetwork  string
+	DefaultAdminUsername string
+	DefaultAdminEmail    string
+	DefaultAdminPassword string
 }
 
 func Load() *Config {
@@ -38,6 +41,9 @@ func Load() *Config {
 		TurnPassword:  getEnv("TURN_PASSWORD", "rdturnpass"),
 		StunServer:    getEnv("STUN_SERVER", "stun:stun.l.google.com:19302"),
 		DockerNetwork: getEnv("DOCKER_NETWORK", "rd-network"),
+		DefaultAdminUsername: getEnv("DEFAULT_ADMIN_USERNAME", "admin"),
+		DefaultAdminEmail:    getEnv("DEFAULT_ADMIN_EMAIL", "admin@local"),
+		DefaultAdminPassword: getEnv("DEFAULT_ADMIN_PASSWORD", "ChangeMeNow!123"),
 	}
 }
 

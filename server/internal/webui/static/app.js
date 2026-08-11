@@ -17,6 +17,11 @@ const els = {
   relayHostField: document.getElementById("relayHostField"),
   targetHost: document.getElementById("targetHost"),
   createForm: document.getElementById("createForm"),
+  passwordPanel: document.getElementById("passwordPanel"),
+  passwordForm: document.getElementById("passwordForm"),
+  currentPassword: document.getElementById("currentPassword"),
+  newPassword: document.getElementById("newPassword"),
+  passwordError: document.getElementById("passwordError"),
   sessionList: document.getElementById("sessionList"),
   sessionMeta: document.getElementById("sessionMeta"),
   userBadge: document.getElementById("userBadge"),
@@ -70,6 +75,18 @@ function renderAuth() {
   if (loggedIn) {
     els.userBadge.textContent = `${state.user.username} · ${state.user.email}`;
   }
+  renderPasswordState();
+}
+
+function renderPasswordState() {
+  const required = Boolean(state.user?.password_change_required);
+  els.passwordPanel.classList.toggle("hidden", !required);
+  els.createForm.querySelectorAll("input, select, button").forEach((el) => {
+    el.disabled = required;
+  });
+  els.refreshBtn.disabled = false;
+  els.openViewerBtn.disabled = required;
+  els.stopSessionBtn.disabled = required;
 }
 
 function renderSessions() {
@@ -107,6 +124,10 @@ async function refreshBootstrap() {
   }
   renderAuth();
   renderSessions();
+  if (state.user?.password_change_required) {
+    clearViewer("Change the default password to unlock session controls.");
+    return;
+  }
   if (state.activeSession) {
     await openViewer(state.activeSession.id, false);
   } else {
@@ -174,6 +195,32 @@ els.loginForm.addEventListener("submit", async (event) => {
   } catch (error) {
     els.loginError.textContent = error.message;
     els.loginError.classList.remove("hidden");
+  }
+});
+
+els.passwordForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  els.passwordError.classList.add("hidden");
+  const submitter = els.passwordForm.querySelector("button[type=submit]");
+  submitter.disabled = true;
+  try {
+    const user = await api("/api/change-password", {
+      method: "POST",
+      body: JSON.stringify({
+        current_password: els.currentPassword.value,
+        new_password: els.newPassword.value,
+      }),
+    });
+    state.user = user;
+    els.currentPassword.value = "";
+    els.newPassword.value = "";
+    renderAuth();
+    await refreshBootstrap();
+  } catch (error) {
+    els.passwordError.textContent = error.message;
+    els.passwordError.classList.remove("hidden");
+  } finally {
+    submitter.disabled = false;
   }
 });
 

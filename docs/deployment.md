@@ -36,6 +36,17 @@ curl -X POST http://your-server:8080/api/register \
   -d '{"username":"admin","email":"admin@example.com","password":"yourpassword"}'
 ```
 
+## Default Admin
+
+On first boot the server auto-creates a default admin from the environment:
+
+- `DEFAULT_ADMIN_USERNAME`
+- `DEFAULT_ADMIN_EMAIL`
+- `DEFAULT_ADMIN_PASSWORD`
+
+The default admin is marked with `password_change_required=true`, so after the first login
+you must change the password before accessing session controls.
+
 ## Windows Client Setup
 
 1. Run `scripts/build-client.ps1` to build both x86 and x64

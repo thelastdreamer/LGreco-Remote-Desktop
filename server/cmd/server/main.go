@@ -24,6 +24,9 @@ func main() {
 		if err := db.RunMigrations(); err != nil {
 			log.Fatalf("migration failed: %v", err)
 		}
+		if err := auth.EnsureDefaultAdmin(cfg); err != nil {
+			log.Fatalf("default admin bootstrap failed: %v", err)
+		}
 	}
 
 	auth.Init(cfg)

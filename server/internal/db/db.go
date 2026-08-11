@@ -37,9 +37,11 @@ func RunMigrations() error {
 			username VARCHAR(64) NOT NULL UNIQUE,
 			email VARCHAR(255) NOT NULL UNIQUE,
 			password_hash VARCHAR(255) NOT NULL,
+			password_change_required BOOLEAN NOT NULL DEFAULT false,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_change_required BOOLEAN NOT NULL DEFAULT false`,
 		`CREATE TABLE IF NOT EXISTS sessions (
 			id BIGSERIAL PRIMARY KEY,
 			user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

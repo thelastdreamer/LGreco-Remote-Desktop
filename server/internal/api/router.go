@@ -43,14 +43,19 @@ func NewRouter(cfg *config.Config) chi.Router {
 			r.Use(auth.Authenticator())
 
 			r.Get("/me", handleMe)
+			r.Post("/change-password", handleChangePassword)
 			r.Get("/bootstrap", handleBootstrap)
-			r.Post("/sessions", handleCreateSession(cfg, orch))
-			r.Get("/sessions", handleListSessions)
-			r.Get("/sessions/{sessionID}", handleGetSession)
-			r.Get("/sessions/{sessionID}/viewer", handleGetViewer)
-			r.Handle("/sessions/{sessionID}/novnc/*", handleNoVNCProxy())
-			r.Delete("/sessions/{sessionID}", handleDeleteSession(orch))
-			r.Get("/sessions/{sessionID}/ice-servers", handleICEServers(cfg))
+
+			r.Group(func(r chi.Router) {
+				r.Use(requirePasswordRotation)
+				r.Post("/sessions", handleCreateSession(cfg, orch))
+				r.Get("/sessions", handleListSessions)
+				r.Get("/sessions/{sessionID}", handleGetSession)
+				r.Get("/sessions/{sessionID}/viewer", handleGetViewer)
+				r.Handle("/sessions/{sessionID}/novnc/*", handleNoVNCProxy())
+				r.Delete("/sessions/{sessionID}", handleDeleteSession(orch))
+				r.Get("/sessions/{sessionID}/ice-servers", handleICEServers(cfg))
+			})
 		})
 	})
 
@@ -109,10 +114,7 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid token")
 		return
 	}
-	user := &models.User{}
-	err = db.DB.QueryRow(
-		`SELECT id, username, email, created_at, updated_at FROM users WHERE id = $1`, userID,
-	).Scan(&user.ID, &user.Username, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+	user, err := loadUserByID(userID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
@@ -127,10 +129,7 @@ func handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := &models.User{}
-	err = db.DB.QueryRow(
-		`SELECT id, username, email, created_at, updated_at FROM users WHERE id = $1`, userID,
-	).Scan(&user.ID, &user.Username, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+	user, err := loadUserByID(userID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
@@ -146,6 +145,37 @@ func handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		"user":     user,
 		"sessions": sessions,
 	})
+}
+
+func handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.UserIDFromContext(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		writeError(w, http.StatusBadRequest, "current_password and new_password required")
+		return
+	}
+	if err := auth.ChangePassword(userID, req.CurrentPassword, req.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	user, err := loadUserByID(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reload user")
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
 }
 
 func handleCreateSession(cfg *config.Config, orch *orchestration.Orchestrator) http.HandlerFunc {
@@ -308,6 +338,40 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, models.ErrorResponse{Error: msg, Code: status})
+}
+
+func requirePasswordRotation(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID, err := auth.UserIDFromContext(r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
+		var passwordChangeRequired bool
+		err = db.DB.QueryRow(`SELECT password_change_required FROM users WHERE id = $1`, userID).Scan(&passwordChangeRequired)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "user not found")
+			return
+		}
+		if passwordChangeRequired {
+			writeError(w, http.StatusForbidden, "password change required before accessing sessions")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func loadUserByID(userID int64) (*models.User, error) {
+	user := &models.User{}
+	err := db.DB.QueryRow(
+		`SELECT id, username, email, password_change_required, created_at, updated_at
+		 FROM users WHERE id = $1`,
+		userID,
+	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordChangeRequired, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
 }
 
 func loadSessionsForUser(userID int64) ([]models.Session, error) {

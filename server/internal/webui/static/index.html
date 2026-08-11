@@ -55,6 +55,25 @@
       </header>
 
       <section id="dashboard" class="dashboard hidden">
+        <div id="passwordPanel" class="panel action-card hidden">
+          <div class="panel-heading">
+            <h3>Change Default Password</h3>
+            <p>The default admin must rotate its password before session controls unlock.</p>
+          </div>
+          <form id="passwordForm" class="grid-form">
+            <label>
+              <span>Current Password</span>
+              <input id="currentPassword" type="password" autocomplete="current-password" required>
+            </label>
+            <label>
+              <span>New Password</span>
+              <input id="newPassword" type="password" autocomplete="new-password" minlength="10" required>
+            </label>
+            <button class="primary" type="submit">Update Password</button>
+            <p id="passwordError" class="error hidden"></p>
+          </form>
+        </div>
+
         <div class="panel action-card">
           <div class="panel-heading">
             <h3>Create Session</h3>
