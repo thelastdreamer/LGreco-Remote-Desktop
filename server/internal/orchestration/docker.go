@@ -15,13 +15,39 @@ import (
 )
 
 type Orchestrator struct {
-	cfg      *config.Config
-	buildMu  sync.Mutex
+	cfg       *config.Config
+	buildMu   sync.Mutex
 	builtOnce sync.Map
+}
+
+type RuntimeStatus struct {
+	DesktopImage          string `json:"desktop_image"`
+	RelayImage            string `json:"relay_image"`
+	DesktopReady          bool   `json:"desktop_ready"`
+	RelayReady            bool   `json:"relay_ready"`
+	DesktopContext        string `json:"desktop_context"`
+	RelayContext          string `json:"relay_context"`
+	DesktopContextExists  bool   `json:"desktop_context_exists"`
+	RelayContextExists    bool   `json:"relay_context_exists"`
+	DockerNetwork         string `json:"docker_network"`
 }
 
 func New(cfg *config.Config) *Orchestrator {
 	return &Orchestrator{cfg: cfg}
+}
+
+func (o *Orchestrator) RuntimeStatus() RuntimeStatus {
+	return RuntimeStatus{
+		DesktopImage:         o.cfg.DesktopImage,
+		RelayImage:           o.cfg.RelayImage,
+		DesktopReady:         imageExists(o.cfg.DesktopImage),
+		RelayReady:           imageExists(o.cfg.RelayImage),
+		DesktopContext:       o.cfg.DesktopBuildContext,
+		RelayContext:         o.cfg.RelayBuildContext,
+		DesktopContextExists: pathExists(o.cfg.DesktopBuildContext),
+		RelayContextExists:   pathExists(o.cfg.RelayBuildContext),
+		DockerNetwork:        o.cfg.DockerNetwork,
+	}
 }
 
 func (o *Orchestrator) EnsureRuntimeImages() error {
@@ -44,6 +70,7 @@ func (o *Orchestrator) CreateDesktopContainer(sessionID int64, signalingKey, res
 
 	args := []string{
 		"run", "-d",
+		"--pull", "never",
 		"--name", name,
 		"--network", o.cfg.DockerNetwork,
 		"-e", fmt.Sprintf("RESOLUTION=%sx%s", width, height),
@@ -86,6 +113,7 @@ func (o *Orchestrator) CreateRelayContainer(sessionID int64, signalingKey, targe
 
 	args := []string{
 		"run", "-d",
+		"--pull", "never",
 		"--name", name,
 		"--network", o.cfg.DockerNetwork,
 		"-e", fmt.Sprintf("TARGET_HOST=%s", targetHost),
@@ -171,18 +199,18 @@ func (o *Orchestrator) ensureImage(imageName, buildContext string) error {
 	if buildContext == "" {
 		return fmt.Errorf("image %s is missing and no build context is configured", imageName)
 	}
-	if _, err := os.Stat(buildContext); err != nil {
-		return fmt.Errorf("image %s is missing and build context %s is unavailable: %w", imageName, buildContext, err)
+	if !pathExists(buildContext) {
+		return fmt.Errorf("image %s is missing and build context %s is unavailable", imageName, buildContext)
 	}
 
 	log.Printf("building missing runtime image %s from %s (this can take several minutes)", imageName, buildContext)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "docker", "build", "-t", imageName, buildContext)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker build %s failed: %w, output: %s", imageName, err, string(out))
+		return fmt.Errorf("docker build %s failed: %w, output: %s", imageName, err, truncate(string(out), 4000))
 	}
 
 	if !imageExists(imageName) {
@@ -199,6 +227,14 @@ func imageExists(imageName string) bool {
 	return cmd.Run() == nil
 }
 
+func pathExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func splitResolution(resolution string) (string, string) {
 	parts := strings.Split(resolution, "x")
 	width, height := parts[0], "720"
@@ -213,4 +249,11 @@ func shortID(id string) string {
 		return id[:12]
 	}
 	return id
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "...(truncated)"
 }

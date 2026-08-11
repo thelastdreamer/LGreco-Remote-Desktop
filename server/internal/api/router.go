@@ -53,6 +53,7 @@ func NewRouter(cfg *config.Config) chi.Router {
 			r.Get("/me", handleMe)
 			r.Post("/change-password", handleChangePassword)
 			r.Get("/bootstrap", handleBootstrap)
+			r.Get("/runtime", handleRuntime(orch))
 
 			r.Group(func(r chi.Router) {
 				r.Use(requirePasswordRotation)
@@ -186,6 +187,12 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, user)
 }
 
+func handleRuntime(orch *orchestration.Orchestrator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, orch.RuntimeStatus())
+	}
+}
+
 func handleCreateSession(cfg *config.Config, orch *orchestration.Orchestrator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := auth.UserIDFromContext(r)
@@ -244,7 +251,7 @@ func handleCreateSession(cfg *config.Config, orch *orchestration.Orchestrator) h
 			_, _, err = orch.CreateDesktopContainer(session.ID, signalingKey, req.Resolution)
 		}
 		if err != nil {
-			_, _ = db.DB.Exec(`DELETE FROM sessions WHERE id = $1`, session.ID)
+			_, _ = db.DB.Exec(`UPDATE sessions SET status = 'failed' WHERE id = $1`, session.ID)
 			writeError(w, http.StatusInternalServerError, "failed to start session container: "+err.Error())
 			return
 		}

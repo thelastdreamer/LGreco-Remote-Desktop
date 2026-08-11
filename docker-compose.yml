@@ -28,8 +28,8 @@ services:
 
   api:
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: server/Dockerfile
     restart: unless-stopped
     ports:
       - "${API_PORT:-8080}:8080"
@@ -62,12 +62,11 @@ services:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./desktop-container:/build/desktop-container:ro
-      - ./relay-container:/build/relay-container:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 15s
       timeout: 5s
+      start_period: 30s
       retries: 3
 
   desktop-image:

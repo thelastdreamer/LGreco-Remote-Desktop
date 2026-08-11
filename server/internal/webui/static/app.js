@@ -24,6 +24,7 @@ const els = {
   passwordError: document.getElementById("passwordError"),
   sessionList: document.getElementById("sessionList"),
   sessionMeta: document.getElementById("sessionMeta"),
+  runtimeMeta: document.getElementById("runtimeMeta"),
   userBadge: document.getElementById("userBadge"),
   logoutBtn: document.getElementById("logoutBtn"),
   refreshBtn: document.getElementById("refreshBtn"),
@@ -124,6 +125,7 @@ async function refreshBootstrap() {
   }
   renderAuth();
   renderSessions();
+  await refreshRuntime();
   if (state.user?.password_change_required) {
     clearViewer("Change the default password to unlock session controls.");
     return;
@@ -132,6 +134,18 @@ async function refreshBootstrap() {
     await openViewer(state.activeSession.id, false);
   } else {
     clearViewer("Select or create a session to begin remote control.");
+  }
+}
+
+async function refreshRuntime() {
+  if (!els.runtimeMeta) return;
+  try {
+    const runtime = await api("/api/runtime");
+    const desktop = runtime.desktop_ready ? "ready" : "building/missing";
+    const relay = runtime.relay_ready ? "ready" : "building/missing";
+    els.runtimeMeta.textContent = `Runtime: desktop=${desktop}, relay=${relay}. First create may take several minutes while images build.`;
+  } catch (error) {
+    els.runtimeMeta.textContent = `Runtime status unavailable: ${error.message}`;
   }
 }
 

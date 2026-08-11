@@ -68,11 +68,15 @@ Dokploy builds the `api` image plus two lightweight seed services:
 - `desktop-image` -> builds and keeps `rd-desktop:latest` available
 - `relay-image` -> builds and keeps `rd-relay:latest` available
 
-These seed services allow the API to create on-demand session containers without requiring
-manual `docker build` commands on the server.
+The API image also bakes `desktop-container/` and `relay-container/` into
+`/build/...`. On startup and before creating a session, the API auto-builds any
+missing runtime images through the mounted Docker socket.
 
-As a fallback, the API also mounts `desktop-container/` and `relay-container/` and will
-automatically build missing runtime images the first time a session is created.
+Important for Dokploy:
+1. Redeploy must rebuild the `api` image (not only restart containers)
+2. Use the repository `docker-compose.yml` (do not keep an old pasted compose)
+3. After deploy, check `/api/runtime` while logged in: `desktop_ready` should become `true`
+4. The first image build can take several minutes
 
 ## Ports
 
