@@ -20,6 +20,10 @@ type Config struct {
 	TurnPassword   string
 	StunServer     string
 	DockerNetwork  string
+	DesktopImage       string
+	RelayImage         string
+	DesktopBuildContext string
+	RelayBuildContext   string
 	DefaultAdminUsername string
 	DefaultAdminEmail    string
 	DefaultAdminPassword string
@@ -41,6 +45,10 @@ func Load() *Config {
 		TurnPassword:  getEnv("TURN_PASSWORD", "rdturnpass"),
 		StunServer:    getEnv("STUN_SERVER", "stun:stun.l.google.com:19302"),
 		DockerNetwork: getEnv("DOCKER_NETWORK", "rd-network"),
+		DesktopImage:        getEnv("DESKTOP_IMAGE", "rd-desktop:latest"),
+		RelayImage:          getEnv("RELAY_IMAGE", "rd-relay:latest"),
+		DesktopBuildContext: getEnv("DESKTOP_BUILD_CONTEXT", "/build/desktop-container"),
+		RelayBuildContext:   getEnv("RELAY_BUILD_CONTEXT", "/build/relay-container"),
 		DefaultAdminUsername: getEnv("DEFAULT_ADMIN_USERNAME", "admin"),
 		DefaultAdminEmail:    getEnv("DEFAULT_ADMIN_EMAIL", "admin@local"),
 		DefaultAdminPassword: getEnv("DEFAULT_ADMIN_PASSWORD", "ChangeMeNow!123"),

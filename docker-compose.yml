@@ -48,6 +48,13 @@ services:
       TURN_USERNAME: ${TURN_USERNAME:-rdturnuser}
       TURN_PASSWORD: ${TURN_PASSWORD:-rdturnpass}
       DOCKER_NETWORK: rd-network
+      DESKTOP_IMAGE: ${DESKTOP_IMAGE:-rd-desktop:latest}
+      RELAY_IMAGE: ${RELAY_IMAGE:-rd-relay:latest}
+      DESKTOP_BUILD_CONTEXT: /build/desktop-container
+      RELAY_BUILD_CONTEXT: /build/relay-container
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+      DEFAULT_ADMIN_EMAIL: ${DEFAULT_ADMIN_EMAIL:-admin@local}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-ChangeMeNow!123}
     depends_on:
       db:
         condition: service_healthy
@@ -55,6 +62,8 @@ services:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./desktop-container:/build/desktop-container:ro
+      - ./relay-container:/build/relay-container:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 15s

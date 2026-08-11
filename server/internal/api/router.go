@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -20,6 +21,13 @@ import (
 func NewRouter(cfg *config.Config) chi.Router {
 	r := chi.NewRouter()
 	orch := orchestration.New(cfg)
+	go func() {
+		if err := orch.EnsureRuntimeImages(); err != nil {
+			log.Printf("WARNING: runtime image prebuild failed: %v", err)
+		} else {
+			log.Printf("runtime images are ready")
+		}
+	}()
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)

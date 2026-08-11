@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lgreco/remote-desktop/server/internal/config"
@@ -13,20 +15,32 @@ import (
 )
 
 type Orchestrator struct {
-	cfg *config.Config
+	cfg      *config.Config
+	buildMu  sync.Mutex
+	builtOnce sync.Map
 }
 
 func New(cfg *config.Config) *Orchestrator {
 	return &Orchestrator{cfg: cfg}
 }
 
-func (o *Orchestrator) CreateDesktopContainer(sessionID int64, signalingKey, resolution string) (containerID, containerName string, err error) {
-	name := fmt.Sprintf("rd-session-%d", sessionID)
-	parts := strings.Split(resolution, "x")
-	width, height := parts[0], "720"
-	if len(parts) >= 2 {
-		height = parts[1]
+func (o *Orchestrator) EnsureRuntimeImages() error {
+	if err := o.ensureImage(o.cfg.DesktopImage, o.cfg.DesktopBuildContext); err != nil {
+		return fmt.Errorf("desktop image: %w", err)
 	}
+	if err := o.ensureImage(o.cfg.RelayImage, o.cfg.RelayBuildContext); err != nil {
+		return fmt.Errorf("relay image: %w", err)
+	}
+	return nil
+}
+
+func (o *Orchestrator) CreateDesktopContainer(sessionID int64, signalingKey, resolution string) (containerID, containerName string, err error) {
+	if err := o.ensureImage(o.cfg.DesktopImage, o.cfg.DesktopBuildContext); err != nil {
+		return "", "", fmt.Errorf("desktop image unavailable: %w", err)
+	}
+
+	name := fmt.Sprintf("rd-session-%d", sessionID)
+	width, height := splitResolution(resolution)
 
 	args := []string{
 		"run", "-d",
@@ -40,7 +54,7 @@ func (o *Orchestrator) CreateDesktopContainer(sessionID int64, signalingKey, res
 		"-e", fmt.Sprintf("TURN_USERNAME=%s", o.cfg.TurnUsername),
 		"-e", fmt.Sprintf("TURN_PASSWORD=%s", o.cfg.TurnPassword),
 		"--shm-size=1g",
-		"rd-desktop:latest",
+		o.cfg.DesktopImage,
 	}
 
 	cmd := exec.Command("docker", args...)
@@ -58,17 +72,17 @@ func (o *Orchestrator) CreateDesktopContainer(sessionID int64, signalingKey, res
 		log.Printf("failed to update session %d: %v", sessionID, err)
 	}
 
-	log.Printf("created container %s for session %d", containerID[:12], sessionID)
+	log.Printf("created container %s for session %d", shortID(containerID), sessionID)
 	return containerID, name, nil
 }
 
 func (o *Orchestrator) CreateRelayContainer(sessionID int64, signalingKey, targetHost string, targetPort int, resolution string) (containerID, containerName string, err error) {
-	name := fmt.Sprintf("rd-relay-%d", sessionID)
-	parts := strings.Split(resolution, "x")
-	width, height := parts[0], "720"
-	if len(parts) >= 2 {
-		height = parts[1]
+	if err := o.ensureImage(o.cfg.RelayImage, o.cfg.RelayBuildContext); err != nil {
+		return "", "", fmt.Errorf("relay image unavailable: %w", err)
 	}
+
+	name := fmt.Sprintf("rd-relay-%d", sessionID)
+	width, height := splitResolution(resolution)
 
 	args := []string{
 		"run", "-d",
@@ -84,7 +98,7 @@ func (o *Orchestrator) CreateRelayContainer(sessionID int64, signalingKey, targe
 		"-e", fmt.Sprintf("TURN_USERNAME=%s", o.cfg.TurnUsername),
 		"-e", fmt.Sprintf("TURN_PASSWORD=%s", o.cfg.TurnPassword),
 		"--shm-size=512m",
-		"rd-relay:latest",
+		o.cfg.RelayImage,
 	}
 
 	cmd := exec.Command("docker", args...)
@@ -102,7 +116,7 @@ func (o *Orchestrator) CreateRelayContainer(sessionID int64, signalingKey, targe
 		log.Printf("failed to update session %d: %v", sessionID, err)
 	}
 
-	log.Printf("created relay container %s for session %d", containerID[:12], sessionID)
+	log.Printf("created relay container %s for session %d", shortID(containerID), sessionID)
 	return containerID, name, nil
 }
 
@@ -126,7 +140,7 @@ func (o *Orchestrator) StopContainer(sessionID int64) error {
 	}
 
 	rmCmd := exec.CommandContext(ctx, "docker", "rm", "-f", containerName)
-	rmCmd.Run()
+	_ = rmCmd.Run()
 
 	_, err = db.DB.Exec(
 		`UPDATE sessions SET status = 'stopped', container_id = NULL, container_name = NULL WHERE id = $1`,
@@ -137,4 +151,66 @@ func (o *Orchestrator) StopContainer(sessionID int64) error {
 	}
 	log.Printf("stopped container for session %d", sessionID)
 	return nil
+}
+
+func (o *Orchestrator) ensureImage(imageName, buildContext string) error {
+	if imageName == "" {
+		return fmt.Errorf("image name is empty")
+	}
+	if imageExists(imageName) {
+		return nil
+	}
+
+	o.buildMu.Lock()
+	defer o.buildMu.Unlock()
+
+	if imageExists(imageName) {
+		return nil
+	}
+
+	if buildContext == "" {
+		return fmt.Errorf("image %s is missing and no build context is configured", imageName)
+	}
+	if _, err := os.Stat(buildContext); err != nil {
+		return fmt.Errorf("image %s is missing and build context %s is unavailable: %w", imageName, buildContext, err)
+	}
+
+	log.Printf("building missing runtime image %s from %s (this can take several minutes)", imageName, buildContext)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "build", "-t", imageName, buildContext)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker build %s failed: %w, output: %s", imageName, err, string(out))
+	}
+
+	if !imageExists(imageName) {
+		return fmt.Errorf("docker build completed but image %s is still missing", imageName)
+	}
+
+	o.builtOnce.Store(imageName, true)
+	log.Printf("runtime image ready: %s", imageName)
+	return nil
+}
+
+func imageExists(imageName string) bool {
+	cmd := exec.Command("docker", "image", "inspect", imageName)
+	return cmd.Run() == nil
+}
+
+func splitResolution(resolution string) (string, string) {
+	parts := strings.Split(resolution, "x")
+	width, height := parts[0], "720"
+	if len(parts) >= 2 {
+		height = parts[1]
+	}
+	return width, height
+}
+
+func shortID(id string) string {
+	if len(id) >= 12 {
+		return id[:12]
+	}
+	return id
 }

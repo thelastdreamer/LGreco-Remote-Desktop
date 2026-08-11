@@ -71,6 +71,9 @@ Dokploy builds the `api` image plus two lightweight seed services:
 These seed services allow the API to create on-demand session containers without requiring
 manual `docker build` commands on the server.
 
+As a fallback, the API also mounts `desktop-container/` and `relay-container/` and will
+automatically build missing runtime images the first time a session is created.
+
 ## Ports
 
 | Port | Service | Protocol |
