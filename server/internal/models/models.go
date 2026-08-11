@@ -49,6 +49,7 @@ type SessionResponse struct {
 	Session     Session       `json:"session"`
 	ICEServers  []ICEServer   `json:"ice_servers"`
 	SignalURL   string        `json:"signal_url"`
+	ViewerURL   string        `json:"viewer_url,omitempty"`
 }
 
 type ICEServer struct {

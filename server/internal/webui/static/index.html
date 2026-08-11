@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Remote Desktop Control</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">RD</div>
+        <div>
+          <h1>Remote Desktop</h1>
+          <p>Secure control panel</p>
+        </div>
+      </div>
+
+      <section id="authCard" class="panel auth-card">
+        <h2>Sign In</h2>
+        <form id="loginForm">
+          <label>
+            <span>Username</span>
+            <input id="username" autocomplete="username" required>
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="password" type="password" autocomplete="current-password" required>
+          </label>
+          <button class="primary" type="submit">Sign in</button>
+          <p id="loginError" class="error hidden"></p>
+        </form>
+      </section>
+
+      <section id="sessionCard" class="panel hidden">
+        <div class="panel-heading">
+          <h2>Sessions</h2>
+          <button id="refreshBtn" class="ghost" type="button">Refresh</button>
+        </div>
+        <div id="sessionList" class="session-list"></div>
+      </section>
+    </aside>
+
+    <main class="content">
+      <header class="topbar panel">
+        <div>
+          <p class="eyebrow">Web Operations</p>
+          <h2>Client Control Center</h2>
+        </div>
+        <div class="topbar-actions">
+          <span id="userBadge" class="badge hidden"></span>
+          <button id="logoutBtn" class="ghost hidden" type="button">Logout</button>
+        </div>
+      </header>
+
+      <section id="dashboard" class="dashboard hidden">
+        <div class="panel action-card">
+          <div class="panel-heading">
+            <h3>Create Session</h3>
+            <p>Start a desktop or relay container, then open it in the embedded viewer.</p>
+          </div>
+          <form id="createForm" class="grid-form">
+            <label>
+              <span>Session Type</span>
+              <select id="sessionType">
+                <option value="desktop">Desktop</option>
+                <option value="relay">Relay</option>
+              </select>
+            </label>
+            <label>
+              <span>Resolution</span>
+              <select id="resolution">
+                <option>1280x720</option>
+                <option>1366x768</option>
+                <option>1600x900</option>
+                <option>1920x1080</option>
+              </select>
+            </label>
+            <label id="relayHostField" class="hidden">
+              <span>Target Host</span>
+              <input id="targetHost" placeholder="192.168.1.100">
+            </label>
+            <button class="primary" type="submit">Create and Open</button>
+          </form>
+        </div>
+
+        <div class="panel status-card">
+          <div class="panel-heading">
+            <h3>Current Session</h3>
+            <p id="sessionMeta">No session selected.</p>
+          </div>
+          <div class="status-actions">
+            <button id="openViewerBtn" class="primary hidden" type="button">Open Viewer</button>
+            <button id="stopSessionBtn" class="danger hidden" type="button">Stop Session</button>
+          </div>
+        </div>
+
+        <div class="panel viewer-card">
+          <div class="panel-heading">
+            <h3>Embedded Remote Viewer</h3>
+            <p>The viewer is proxied through the authenticated server session.</p>
+          </div>
+          <div id="viewerEmpty" class="viewer-empty">
+            Select or create a session to begin remote control.
+          </div>
+          <iframe id="viewerFrame" class="viewer-frame hidden" allow="clipboard-read; clipboard-write"></iframe>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

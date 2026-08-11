@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -13,10 +14,12 @@ import (
 	"github.com/lgreco/remote-desktop/server/internal/config"
 	"github.com/lgreco/remote-desktop/server/internal/db"
 	"github.com/lgreco/remote-desktop/server/internal/models"
+	"github.com/lgreco/remote-desktop/server/internal/orchestration"
 )
 
 func NewRouter(cfg *config.Config) chi.Router {
 	r := chi.NewRouter()
+	orch := orchestration.New(cfg)
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -40,10 +43,13 @@ func NewRouter(cfg *config.Config) chi.Router {
 			r.Use(auth.Authenticator())
 
 			r.Get("/me", handleMe)
-			r.Post("/sessions", handleCreateSession(cfg))
+			r.Get("/bootstrap", handleBootstrap)
+			r.Post("/sessions", handleCreateSession(cfg, orch))
 			r.Get("/sessions", handleListSessions)
 			r.Get("/sessions/{sessionID}", handleGetSession)
-			r.Delete("/sessions/{sessionID}", handleDeleteSession)
+			r.Get("/sessions/{sessionID}/viewer", handleGetViewer)
+			r.Handle("/sessions/{sessionID}/novnc/*", handleNoVNCProxy())
+			r.Delete("/sessions/{sessionID}", handleDeleteSession(orch))
 			r.Get("/sessions/{sessionID}/ice-servers", handleICEServers(cfg))
 		})
 	})
@@ -114,7 +120,35 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, user)
 }
 
-func handleCreateSession(cfg *config.Config) http.HandlerFunc {
+func handleBootstrap(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.UserIDFromContext(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+
+	user := &models.User{}
+	err = db.DB.QueryRow(
+		`SELECT id, username, email, created_at, updated_at FROM users WHERE id = $1`, userID,
+	).Scan(&user.ID, &user.Username, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	sessions, err := loadSessionsForUser(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load sessions")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"user":     user,
+		"sessions": sessions,
+	})
+}
+
+func handleCreateSession(cfg *config.Config, orch *orchestration.Orchestrator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := auth.UserIDFromContext(r)
 		if err != nil {
@@ -134,6 +168,13 @@ func handleCreateSession(cfg *config.Config) http.HandlerFunc {
 		}
 		if req.Resolution == "" {
 			req.Resolution = "1280x720"
+		}
+		if req.Type == "relay" && req.TargetHost == "" {
+			writeError(w, http.StatusBadRequest, "target_host required for relay sessions")
+			return
+		}
+		if req.TargetPort == 0 {
+			req.TargetPort = 3389
 		}
 
 		signalingKey, err := auth.GenerateSignalingKey()
@@ -159,6 +200,19 @@ func handleCreateSession(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		if req.Type == "relay" {
+			_, _, err = orch.CreateRelayContainer(session.ID, signalingKey, req.TargetHost, req.TargetPort, req.Resolution)
+		} else {
+			_, _, err = orch.CreateDesktopContainer(session.ID, signalingKey, req.Resolution)
+		}
+		if err != nil {
+			_, _ = db.DB.Exec(`DELETE FROM sessions WHERE id = $1`, session.ID)
+			writeError(w, http.StatusInternalServerError, "failed to start session container: "+err.Error())
+			return
+		}
+
+		session.Status = "running"
+
 		writeJSON(w, http.StatusCreated, models.SessionResponse{
 			Session: *session,
 			ICEServers: []models.ICEServer{
@@ -166,6 +220,7 @@ func handleCreateSession(cfg *config.Config) http.HandlerFunc {
 				{URLs: cfg.TurnServer, Username: cfg.TurnUsername, Credential: cfg.TurnPassword},
 			},
 			SignalURL: "/ws/signal",
+			ViewerURL: fmt.Sprintf("/api/sessions/%d/novnc/vnc.html?autoconnect=true&resize=remote&path=/api/sessions/%d/novnc/websockify", session.ID, session.ID),
 		})
 	}
 }
@@ -176,38 +231,26 @@ func handleListSessions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid token")
 		return
 	}
-	rows, err := db.DB.Query(
-		`SELECT id, user_id, type, status, container_id, container_name, resolution, audio_enabled, clipboard_sync, created_at, expires_at
-		 FROM sessions WHERE user_id = $1 AND status != 'stopped' ORDER BY created_at DESC`, userID,
-	)
+	sessions, err := loadSessionsForUser(userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	defer rows.Close()
-
-	var sessions []models.Session
-	for rows.Next() {
-		var s models.Session
-		var cid, cname sql.NullString
-		if err := rows.Scan(&s.ID, &s.UserID, &s.Type, &s.Status, &cid, &cname,
-			&s.Resolution, &s.AudioEnabled, &s.ClipboardSync, &s.CreatedAt, &s.ExpiresAt); err != nil {
-			continue
-		}
-		s.ContainerID = cid.String
-		s.ContainerName = cname.String
-		sessions = append(sessions, s)
 	}
 	writeJSON(w, http.StatusOK, sessions)
 }
 
 func handleGetSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
+	userID, err := auth.UserIDFromContext(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
 	var s models.Session
 	var cid, cname sql.NullString
-	err := db.DB.QueryRow(
+	err = db.DB.QueryRow(
 		`SELECT id, user_id, type, status, container_id, container_name, signaling_key, resolution, audio_enabled, clipboard_sync, created_at, expires_at
-		 FROM sessions WHERE id = $1`, sessionID,
+		 FROM sessions WHERE id = $1 AND user_id = $2`, sessionID, userID,
 	).Scan(&s.ID, &s.UserID, &s.Type, &s.Status, &cid, &cname,
 		&s.SignalingKey, &s.Resolution, &s.AudioEnabled, &s.ClipboardSync, &s.CreatedAt, &s.ExpiresAt)
 	if err != nil {
@@ -219,26 +262,33 @@ func handleGetSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s)
 }
 
-func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
-	sessionID := chi.URLParam(r, "sessionID")
-	userID, err := auth.UserIDFromContext(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid token")
-		return
+func handleDeleteSession(orch *orchestration.Orchestrator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionID := chi.URLParam(r, "sessionID")
+		userID, err := auth.UserIDFromContext(r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
+
+		var owned bool
+		err = db.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM sessions WHERE id = $1 AND user_id = $2)`, sessionID, userID).Scan(&owned)
+		if err != nil || !owned {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+
+		var sid int64
+		if _, err := fmt.Sscan(sessionID, &sid); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid session id")
+			return
+		}
+		if err := orch.StopContainer(sid); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 	}
-	result, err := db.DB.Exec(
-		`UPDATE sessions SET status = 'stopped' WHERE id = $1 AND user_id = $2`, sessionID, userID,
-	)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
-		writeError(w, http.StatusNotFound, "session not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
 
 func handleICEServers(cfg *config.Config) http.HandlerFunc {
@@ -258,4 +308,29 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, models.ErrorResponse{Error: msg, Code: status})
+}
+
+func loadSessionsForUser(userID int64) ([]models.Session, error) {
+	rows, err := db.DB.Query(
+		`SELECT id, user_id, type, status, container_id, container_name, resolution, audio_enabled, clipboard_sync, created_at, expires_at
+		 FROM sessions WHERE user_id = $1 AND status != 'stopped' ORDER BY created_at DESC`, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []models.Session
+	for rows.Next() {
+		var s models.Session
+		var cid, cname sql.NullString
+		if err := rows.Scan(&s.ID, &s.UserID, &s.Type, &s.Status, &cid, &cname,
+			&s.Resolution, &s.AudioEnabled, &s.ClipboardSync, &s.CreatedAt, &s.ExpiresAt); err != nil {
+			continue
+		}
+		s.ContainerID = cid.String
+		s.ContainerName = cname.String
+		sessions = append(sessions, s)
+	}
+	return sessions, nil
 }

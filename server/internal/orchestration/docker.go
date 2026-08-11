@@ -20,7 +20,7 @@ func New(cfg *config.Config) *Orchestrator {
 	return &Orchestrator{cfg: cfg}
 }
 
-func (o *Orchestrator) CreateDesktopContainer(sessionID int64, resolution string) (containerID, containerName string, err error) {
+func (o *Orchestrator) CreateDesktopContainer(sessionID int64, signalingKey, resolution string) (containerID, containerName string, err error) {
 	name := fmt.Sprintf("rd-session-%d", sessionID)
 	parts := strings.Split(resolution, "x")
 	width, height := parts[0], "720"
@@ -34,7 +34,7 @@ func (o *Orchestrator) CreateDesktopContainer(sessionID int64, resolution string
 		"--network", o.cfg.DockerNetwork,
 		"-e", fmt.Sprintf("RESOLUTION=%sx%s", width, height),
 		"-e", fmt.Sprintf("SESSION_ID=%d", sessionID),
-		"-e", fmt.Sprintf("SIGNAL_URL=/ws/signal?session=%d&role=host", sessionID),
+		"-e", fmt.Sprintf("SIGNAL_URL=ws://api:8080/ws/signal?session=%d&role=host&key=%s", sessionID, signalingKey),
 		"-e", fmt.Sprintf("STUN_SERVER=%s", o.cfg.StunServer),
 		"-e", fmt.Sprintf("TURN_SERVER=%s", o.cfg.TurnServer),
 		"-e", fmt.Sprintf("TURN_USERNAME=%s", o.cfg.TurnUsername),
@@ -62,7 +62,7 @@ func (o *Orchestrator) CreateDesktopContainer(sessionID int64, resolution string
 	return containerID, name, nil
 }
 
-func (o *Orchestrator) CreateRelayContainer(sessionID int64, targetHost string, targetPort int, resolution string) (containerID, containerName string, err error) {
+func (o *Orchestrator) CreateRelayContainer(sessionID int64, signalingKey, targetHost string, targetPort int, resolution string) (containerID, containerName string, err error) {
 	name := fmt.Sprintf("rd-relay-%d", sessionID)
 	parts := strings.Split(resolution, "x")
 	width, height := parts[0], "720"
@@ -78,7 +78,7 @@ func (o *Orchestrator) CreateRelayContainer(sessionID int64, targetHost string, 
 		"-e", fmt.Sprintf("TARGET_PORT=%d", targetPort),
 		"-e", fmt.Sprintf("RESOLUTION=%sx%s", width, height),
 		"-e", fmt.Sprintf("SESSION_ID=%d", sessionID),
-		"-e", fmt.Sprintf("SIGNAL_URL=/ws/signal?session=%d&role=host", sessionID),
+		"-e", fmt.Sprintf("SIGNAL_URL=ws://api:8080/ws/signal?session=%d&role=host&key=%s", sessionID, signalingKey),
 		"-e", fmt.Sprintf("STUN_SERVER=%s", o.cfg.StunServer),
 		"-e", fmt.Sprintf("TURN_SERVER=%s", o.cfg.TurnServer),
 		"-e", fmt.Sprintf("TURN_USERNAME=%s", o.cfg.TurnUsername),

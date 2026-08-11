@@ -10,6 +10,7 @@ import (
 	"github.com/lgreco/remote-desktop/server/internal/config"
 	"github.com/lgreco/remote-desktop/server/internal/db"
 	"github.com/lgreco/remote-desktop/server/internal/signal"
+	"github.com/lgreco/remote-desktop/server/internal/webui"
 )
 
 func main() {
@@ -43,6 +44,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+	mux.Handle("/", webui.Handler())
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("server starting on %s", addr)
