@@ -233,6 +233,24 @@ button:disabled { opacity: 0.55; cursor: wait; transform: none; }
 .hidden { display: none !important; }
 .error { color: #ffc6cf; }
 
+.install-hint {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid var(--border);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+code {
+  font-family: Consolas, monospace;
+  color: var(--primary-strong);
+}
+
 @media (max-width: 1200px) {
   .dashboard { grid-template-columns: 1fr; }
 }

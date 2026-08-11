@@ -13,7 +13,7 @@
         <div class="brand-mark">RD</div>
         <div>
           <h1>Remote Desktop</h1>
-          <p>Secure control panel</p>
+          <p>Real PC control</p>
         </div>
       </div>
 
@@ -35,8 +35,12 @@
 
       <section id="sessionCard" class="panel hidden">
         <div class="panel-heading">
-          <h2>Sessions</h2>
+          <h2>Online PCs</h2>
           <button id="refreshBtn" class="ghost" type="button">Refresh</button>
+        </div>
+        <div id="agentList" class="session-list"></div>
+        <div class="panel-heading" style="margin-top:18px">
+          <h2>Container Sessions</h2>
         </div>
         <div id="sessionList" class="session-list"></div>
       </section>
@@ -45,7 +49,7 @@
     <main class="content">
       <header class="topbar panel">
         <div>
-          <p class="eyebrow">Web Operations</p>
+          <p class="eyebrow">AnyDesk-style agents</p>
           <h2>Client Control Center</h2>
         </div>
         <div class="topbar-actions">
@@ -58,7 +62,7 @@
         <div id="passwordPanel" class="panel action-card hidden">
           <div class="panel-heading">
             <h3>Change Default Password</h3>
-            <p>The default admin must rotate its password before session controls unlock.</p>
+            <p>The default admin must rotate its password before controls unlock.</p>
           </div>
           <form id="passwordForm" class="grid-form">
             <label>
@@ -76,15 +80,30 @@
 
         <div class="panel action-card">
           <div class="panel-heading">
-            <h3>Create Session</h3>
-            <p>Start a desktop or relay container, then open it in the embedded viewer.</p>
+            <h3>Add Real PC (Agent)</h3>
+            <p>Create a token, install <code>rd-agent</code> on the target machine, then Connect from this panel.</p>
+          </div>
+          <form id="agentForm" class="grid-form">
+            <label>
+              <span>PC Name</span>
+              <input id="agentName" placeholder="Office laptop" required>
+            </label>
+            <button class="primary" type="submit">Create Agent Token</button>
+          </form>
+          <pre id="agentInstallHint" class="install-hint hidden"></pre>
+        </div>
+
+        <div class="panel action-card">
+          <div class="panel-heading">
+            <h3>Create Container Session</h3>
+            <p>Optional legacy mode: ephemeral Docker desktop (not a real PC).</p>
           </div>
           <form id="createForm" class="grid-form">
             <label>
               <span>Session Type</span>
               <select id="sessionType">
-                <option value="desktop">Desktop</option>
-                <option value="relay">Relay</option>
+                <option value="desktop">Desktop container</option>
+                <option value="relay">Relay (RDP)</option>
               </select>
             </label>
             <label>
@@ -100,16 +119,16 @@
               <span>Target Host</span>
               <input id="targetHost" placeholder="192.168.1.100">
             </label>
-            <button class="primary" type="submit">Create and Open</button>
+            <button class="primary" type="submit">Create Container</button>
           </form>
         </div>
 
         <div class="panel status-card">
           <div class="panel-heading">
-            <h3>Current Session</h3>
-            <p id="sessionMeta">No session selected.</p>
+            <h3>Current Target</h3>
+            <p id="sessionMeta">Select an online PC to connect.</p>
           </div>
-          <div id="runtimeMeta" class="muted">Checking runtime images...</div>
+          <div id="runtimeMeta" class="muted">Agents stream the real machine screen over WebRTC.</div>
           <div class="status-actions">
             <button id="openViewerBtn" class="primary hidden" type="button">Open Viewer</button>
             <button id="stopSessionBtn" class="danger hidden" type="button">Stop Session</button>
@@ -118,11 +137,11 @@
 
         <div class="panel viewer-card">
           <div class="panel-heading">
-            <h3>Embedded Remote Viewer</h3>
-            <p>The viewer is proxied through the authenticated server session.</p>
+            <h3>Remote Viewer</h3>
+            <p>Agent sessions use WebRTC to the real PC. Container sessions use noVNC.</p>
           </div>
           <div id="viewerEmpty" class="viewer-empty">
-            Select or create a session to begin remote control.
+            Connect to an online agent to control a real machine.
           </div>
           <iframe id="viewerFrame" class="viewer-frame hidden" allow="clipboard-read; clipboard-write"></iframe>
         </div>

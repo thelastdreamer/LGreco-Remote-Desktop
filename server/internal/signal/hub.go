@@ -1,12 +1,14 @@
 package signal
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/lgreco/remote-desktop/server/internal/db"
 )
 
 var upgrader = websocket.Upgrader{
@@ -18,24 +20,24 @@ var upgrader = websocket.Upgrader{
 }
 
 type Hub struct {
-	mu      sync.RWMutex
-	rooms   map[string]*Room
+	mu    sync.RWMutex
+	rooms map[string]*Room
 }
 
 type Room struct {
-	ID       string
-	mu       sync.RWMutex
-	clients  map[*Client]bool
+	ID      string
+	mu      sync.RWMutex
+	clients map[*Client]bool
 }
 
 type Client struct {
-	ID        string
-	RoomID    string
-	Role      string // "viewer" or "host"
-	Conn      *websocket.Conn
-	Send      chan []byte
-	hub       *Hub
-	mu        sync.Mutex
+	ID     string
+	RoomID string
+	Role   string // "viewer" or "host"
+	Conn   *websocket.Conn
+	Send   chan []byte
+	hub    *Hub
+	mu     sync.Mutex
 }
 
 func NewHub() *Hub {
@@ -94,32 +96,54 @@ func (r *Room) Broadcast(sender *Client, msg []byte) {
 	}
 }
 
-func (r *Room) GetOtherClients(sender *Client) []*Client {
+func (r *Room) ClientCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var others []*Client
-	for c := range r.clients {
-		if c != sender {
-			others = append(others, c)
-		}
+	return len(r.clients)
+}
+
+func validateSignalingKey(sessionID, key string) bool {
+	if key == "" || sessionID == "" || db.DB == nil {
+		return false
 	}
-	return others
+	var stored string
+	var status string
+	err := db.DB.QueryRow(
+		`SELECT signaling_key, status FROM sessions WHERE id = $1`,
+		sessionID,
+	).Scan(&stored, &status)
+	if err != nil {
+		if err != sql.ErrNoRows {
+			log.Printf("signaling key lookup failed: %v", err)
+		}
+		return false
+	}
+	if status == "stopped" || status == "failed" {
+		return false
+	}
+	return stored == key
 }
 
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("session")
+	role := r.URL.Query().Get("role")
+	key := r.URL.Query().Get("key")
+	if sessionID == "" {
+		http.Error(w, "session required", http.StatusBadRequest)
+		return
+	}
+	if role == "" {
+		role = "viewer"
+	}
+	if !validateSignalingKey(sessionID, key) {
+		http.Error(w, "invalid signaling key", http.StatusUnauthorized)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("websocket upgrade error: %v", err)
 		return
-	}
-
-	sessionID := r.URL.Query().Get("session")
-	role := r.URL.Query().Get("role")
-	if sessionID == "" {
-		sessionID = "default"
-	}
-	if role == "" {
-		role = "viewer"
 	}
 
 	client := &Client{
@@ -143,7 +167,7 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 func (c *Client) readPump(room *Room) {
 	defer func() {
 		room.RemoveClient(c)
-		if len(room.GetOtherClients(nil)) == 0 {
+		if room.ClientCount() == 0 {
 			c.hub.RemoveRoom(c.RoomID)
 		}
 	}()
@@ -166,9 +190,10 @@ func (c *Client) readPump(room *Room) {
 		switch msgType {
 		case "ping":
 			ack, _ := json.Marshal(map[string]string{"type": "pong"})
-			c.mu.Lock()
-			c.Send <- ack
-			c.mu.Unlock()
+			select {
+			case c.Send <- ack:
+			default:
+			}
 		default:
 			room.Broadcast(c, message)
 		}

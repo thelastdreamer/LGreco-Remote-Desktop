@@ -16,9 +16,10 @@ import (
 	"github.com/lgreco/remote-desktop/server/internal/db"
 	"github.com/lgreco/remote-desktop/server/internal/models"
 	"github.com/lgreco/remote-desktop/server/internal/orchestration"
+	"github.com/lgreco/remote-desktop/server/internal/signal"
 )
 
-func NewRouter(cfg *config.Config) chi.Router {
+func NewRouter(cfg *config.Config, agentHub *signal.AgentHub) chi.Router {
 	r := chi.NewRouter()
 	orch := orchestration.New(cfg)
 	go func() {
@@ -47,6 +48,10 @@ func NewRouter(cfg *config.Config) chi.Router {
 		r.Post("/login", handleLogin)
 		r.Post("/logout", handleLogout)
 
+		// Installed PC agents authenticate with their agent token (not user JWT).
+		r.Post("/agents/presence", handleAgentPresence(agentHub))
+		r.Get("/agents/ws", handleAgentSocket(agentHub))
+
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware())
 			r.Use(auth.Authenticator())
@@ -65,6 +70,11 @@ func NewRouter(cfg *config.Config) chi.Router {
 				r.Handle("/sessions/{sessionID}/novnc/*", handleNoVNCProxy())
 				r.Delete("/sessions/{sessionID}", handleDeleteSession(orch))
 				r.Get("/sessions/{sessionID}/ice-servers", handleICEServers(cfg))
+
+				r.Post("/agents", handleCreateAgent)
+				r.Get("/agents", handleListAgents(agentHub))
+				r.Post("/agents/{agentID}/connect", handleConnectAgent(cfg, agentHub))
+				r.Delete("/agents/{agentID}", handleDeleteAgent(agentHub))
 			})
 		})
 	})
@@ -327,9 +337,13 @@ func handleDeleteSession(orch *orchestration.Orchestrator) http.HandlerFunc {
 			return
 		}
 
-		var owned bool
-		err = db.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM sessions WHERE id = $1 AND user_id = $2)`, sessionID, userID).Scan(&owned)
-		if err != nil || !owned {
+		var sessionType string
+		var agentID sql.NullInt64
+		err = db.DB.QueryRow(
+			`SELECT type, agent_id FROM sessions WHERE id = $1 AND user_id = $2`,
+			sessionID, userID,
+		).Scan(&sessionType, &agentID)
+		if err != nil {
 			writeError(w, http.StatusNotFound, "session not found")
 			return
 		}
@@ -339,6 +353,16 @@ func handleDeleteSession(orch *orchestration.Orchestrator) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid session id")
 			return
 		}
+
+		if sessionType == "agent" {
+			_, _ = db.DB.Exec(`UPDATE sessions SET status = 'stopped' WHERE id = $1`, sid)
+			if agentID.Valid {
+				_, _ = db.DB.Exec(`UPDATE agents SET status = 'online' WHERE id = $1`, agentID.Int64)
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+			return
+		}
+
 		if err := orch.StopContainer(sid); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

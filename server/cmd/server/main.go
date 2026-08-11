@@ -32,15 +32,20 @@ func main() {
 	auth.Init(cfg)
 
 	hub := signal.NewHub()
+	agentHub := signal.NewAgentHub()
 
 	mux := http.NewServeMux()
 
-	apiRouter := api.NewRouter(cfg)
+	apiRouter := api.NewRouter(cfg, agentHub)
 	mux.Handle("/api/", apiRouter)
 	mux.Handle("/api", apiRouter)
 
 	mux.HandleFunc("/ws/signal", func(w http.ResponseWriter, r *http.Request) {
 		hub.HandleWebSocket(w, r)
+	})
+	mux.HandleFunc("/ws/agent", func(w http.ResponseWriter, r *http.Request) {
+		handleAgentWS := api.AgentSocketHandler(agentHub)
+		handleAgentWS(w, r)
 	})
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

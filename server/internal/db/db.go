@@ -59,6 +59,22 @@ func RunMigrations() error {
 		`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_signaling_key ON sessions(signaling_key)`,
+		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS agent_id BIGINT`,
+		`CREATE TABLE IF NOT EXISTS agents (
+			id BIGSERIAL PRIMARY KEY,
+			user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			device_code VARCHAR(16) NOT NULL UNIQUE,
+			token_hash VARCHAR(255) NOT NULL,
+			name VARCHAR(128) NOT NULL DEFAULT '',
+			hostname VARCHAR(255) NOT NULL DEFAULT '',
+			os VARCHAR(64) NOT NULL DEFAULT '',
+			status VARCHAR(32) NOT NULL DEFAULT 'offline',
+			last_seen_at TIMESTAMP WITH TIME ZONE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_agents_device_code ON agents(device_code)`,
+		`CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status)`,
 	}
 	for _, m := range migrations {
 		if _, err := DB.Exec(m); err != nil {

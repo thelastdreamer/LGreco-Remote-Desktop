@@ -21,6 +21,23 @@ func handleGetViewer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
+
+	userID, _ := auth.UserIDFromContext(r)
+	var sessionType string
+	var signalingKey string
+	_ = db.DB.QueryRow(
+		`SELECT type, signaling_key FROM sessions WHERE id = $1 AND user_id = $2`,
+		sessionID, userID,
+	).Scan(&sessionType, &signalingKey)
+
+	if sessionType == "agent" {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"session_id": sessionID,
+			"viewer_url": fmt.Sprintf("/viewer.html?session=%s&key=%s", sessionID, url.QueryEscape(signalingKey)),
+		})
+		return
+	}
+
 	if containerName == "" {
 		writeError(w, http.StatusConflict, "session container is not ready")
 		return

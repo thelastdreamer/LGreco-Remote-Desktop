@@ -2,6 +2,7 @@ const state = {
   token: localStorage.getItem("rd_token") || "",
   user: null,
   sessions: [],
+  agents: [],
   activeSession: null,
 };
 
@@ -17,6 +18,10 @@ const els = {
   relayHostField: document.getElementById("relayHostField"),
   targetHost: document.getElementById("targetHost"),
   createForm: document.getElementById("createForm"),
+  agentForm: document.getElementById("agentForm"),
+  agentName: document.getElementById("agentName"),
+  agentInstallHint: document.getElementById("agentInstallHint"),
+  agentList: document.getElementById("agentList"),
   passwordPanel: document.getElementById("passwordPanel"),
   passwordForm: document.getElementById("passwordForm"),
   currentPassword: document.getElementById("currentPassword"),
@@ -39,8 +44,6 @@ function setAuth(token) {
   state.token = token || "";
   if (state.token) {
     localStorage.setItem("rd_token", state.token);
-    // chi/jwtauth reads cookie name "jwt"; iframes/WebSockets cannot send Authorization.
-    // Login also sets an HttpOnly cookie; this mirrors localStorage for already-open sessions.
     document.cookie = `jwt=${state.token}; Path=/; SameSite=Lax; Max-Age=${72 * 60 * 60}`;
   } else {
     localStorage.removeItem("rd_token");
@@ -89,15 +92,49 @@ function renderPasswordState() {
   els.createForm.querySelectorAll("input, select, button").forEach((el) => {
     el.disabled = required;
   });
+  els.agentForm.querySelectorAll("input, button").forEach((el) => {
+    el.disabled = required;
+  });
   els.refreshBtn.disabled = false;
   els.openViewerBtn.disabled = required;
   els.stopSessionBtn.disabled = required;
 }
 
+function renderAgents() {
+  els.agentList.innerHTML = "";
+  if (!state.agents.length) {
+    els.agentList.innerHTML = `<div class="session-item"><div class="muted">No agents yet. Create a token and run rd-agent on the PC.</div></div>`;
+    return;
+  }
+  for (const agent of state.agents) {
+    const item = document.createElement("div");
+    item.className = "session-item";
+    const online = agent.status === "online" || agent.status === "busy";
+    item.innerHTML = `
+      <div class="session-row">
+        <strong>${agent.name || agent.hostname || "PC"} · ${agent.device_code}</strong>
+        <span class="pill">${agent.status}</span>
+      </div>
+      <div class="muted">${agent.hostname || "waiting for agent"} · ${agent.os || ""}</div>
+      <div class="status-actions" style="margin-top:10px">
+        <button class="primary connect-agent" type="button" ${online && !requiredPassword() ? "" : "disabled"}>Connect</button>
+        <button class="danger delete-agent" type="button">Remove</button>
+      </div>
+    `;
+    item.querySelector(".connect-agent").addEventListener("click", () => connectAgent(agent.id));
+    item.querySelector(".delete-agent").addEventListener("click", () => deleteAgent(agent.id));
+    els.agentList.appendChild(item);
+  }
+}
+
+function requiredPassword() {
+  return Boolean(state.user?.password_change_required);
+}
+
 function renderSessions() {
   els.sessionList.innerHTML = "";
   if (!state.sessions.length) {
-    els.sessionList.innerHTML = `<div class="session-item"><div class="muted">No active sessions yet.</div></div>`;
+    els.sessionList.innerHTML = `<div class="session-item"><div class="muted">No container/agent sessions yet.</div></div>`;
     return;
   }
 
@@ -121,36 +158,29 @@ async function refreshBootstrap() {
   const data = await api("/api/bootstrap");
   state.user = data.user;
   state.sessions = data.sessions || [];
+  state.agents = await api("/api/agents").catch(() => []);
   if (state.activeSession) {
     state.activeSession = state.sessions.find(s => s.id === state.activeSession.id) || null;
   }
-  if (!state.activeSession && state.sessions.length) {
-    state.activeSession = state.sessions[0];
-  }
   renderAuth();
+  renderAgents();
   renderSessions();
   await refreshRuntime();
   if (state.user?.password_change_required) {
-    clearViewer("Change the default password to unlock session controls.");
+    clearViewer("Change the default password to unlock controls.");
     return;
   }
   if (state.activeSession) {
     await openViewer(state.activeSession.id, false);
   } else {
-    clearViewer("Select or create a session to begin remote control.");
+    clearViewer("Connect to an online agent to control a real machine.");
   }
 }
 
 async function refreshRuntime() {
   if (!els.runtimeMeta) return;
-  try {
-    const runtime = await api("/api/runtime");
-    const desktop = runtime.desktop_ready ? "ready" : "building/missing";
-    const relay = runtime.relay_ready ? "ready" : "building/missing";
-    els.runtimeMeta.textContent = `Runtime: desktop=${desktop}, relay=${relay}. First create may take several minutes while images build.`;
-  } catch (error) {
-    els.runtimeMeta.textContent = `Runtime status unavailable: ${error.message}`;
-  }
+  const online = state.agents.filter(a => a.status === "online" || a.status === "busy").length;
+  els.runtimeMeta.textContent = `${online} agent(s) online. Install rd-agent on each PC you want to control.`;
 }
 
 function clearViewer(message) {
@@ -186,6 +216,26 @@ async function openViewer(sessionId, refresh = true) {
   }
 }
 
+async function connectAgent(agentId) {
+  const data = await api(`/api/agents/${agentId}/connect`, { method: "POST" });
+  state.activeSession = data.session;
+  els.sessionMeta.textContent = `Agent session #${data.session.id}`;
+  els.viewerFrame.src = data.viewer_url;
+  els.viewerFrame.classList.remove("hidden");
+  els.viewerEmpty.classList.add("hidden");
+  els.openViewerBtn.classList.remove("hidden");
+  els.stopSessionBtn.classList.remove("hidden");
+  await refreshBootstrap();
+  state.activeSession = data.session;
+  els.viewerFrame.src = data.viewer_url;
+}
+
+async function deleteAgent(agentId) {
+  if (!confirm("Remove this agent enrollment?")) return;
+  await api(`/api/agents/${agentId}`, { method: "DELETE" });
+  await refreshBootstrap();
+}
+
 async function login(username, password) {
   const data = await api("/api/login", {
     method: "POST",
@@ -200,6 +250,7 @@ function logout() {
   setAuth("");
   state.user = null;
   state.sessions = [];
+  state.agents = [];
   state.activeSession = null;
   renderAuth();
   clearViewer("Signed out.");
@@ -238,6 +289,29 @@ els.passwordForm.addEventListener("submit", async (event) => {
   } catch (error) {
     els.passwordError.textContent = error.message;
     els.passwordError.classList.remove("hidden");
+  } finally {
+    submitter.disabled = false;
+  }
+});
+
+els.agentForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submitter = els.agentForm.querySelector("button[type=submit]");
+  submitter.disabled = true;
+  try {
+    const data = await api("/api/agents", {
+      method: "POST",
+      body: JSON.stringify({ name: els.agentName.value.trim() }),
+    });
+    els.agentInstallHint.textContent =
+      `Device code: ${data.agent.device_code}\n\n` +
+      `On the target PC run:\n${data.install_hint}\n\n` +
+      `Save the token now — it is shown only once.`;
+    els.agentInstallHint.classList.remove("hidden");
+    els.agentName.value = "";
+    await refreshBootstrap();
+  } catch (error) {
+    alert(error.message);
   } finally {
     submitter.disabled = false;
   }
@@ -298,6 +372,6 @@ els.stopSessionBtn.addEventListener("click", async () => {
 
 renderAuth();
 if (state.token) {
-  setAuth(state.token); // ensure jwt cookie exists for embedded noVNC
+  setAuth(state.token);
   refreshBootstrap().catch(() => logout());
 }

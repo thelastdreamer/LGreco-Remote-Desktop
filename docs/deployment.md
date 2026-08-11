@@ -89,3 +89,13 @@ Important for Dokploy:
 ## Environment Variables
 
 See `.env.example` for all configuration options.
+
+## Real-PC agents (AnyDesk-style)
+
+See [agents.md](agents.md). After deploying the API:
+
+1. Open the control panel → **Add Real PC (Agent)**
+2. On a Windows PC with Go: run `scripts/build-agent.ps1`, then  
+   `rd-agent.exe --server http://YOUR-PANEL --token YOUR_TOKEN`
+3. When the agent is **online**, click **Connect** — this controls the **real machine**, not a Docker container.
+

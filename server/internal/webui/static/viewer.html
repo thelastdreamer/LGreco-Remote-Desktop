@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Viewer</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    body { margin: 0; background: #000; }
+    #screen {
+      width: 100vw;
+      height: 100vh;
+      object-fit: contain;
+      background: #000;
+      cursor: none;
+    }
+    #hud {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      background: rgba(0,0,0,.55);
+      color: #e5eefc;
+      font: 13px Segoe UI, sans-serif;
+      z-index: 2;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">Connecting…</div>
+  <img id="screen" alt="Remote screen" draggable="false">
+  <script src="/viewer.js"></script>
+</body>
+</html>
