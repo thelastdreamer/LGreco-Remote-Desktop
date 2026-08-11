@@ -56,8 +56,7 @@ Client (WPF) <-> rd-bridge (Go/Pion WebRTC) <-> Server (Go/Pion WebRTC) <-> Desk
 |------|---------|----------|
 | 8080 | API Server | HTTP |
 | 3478 | Coturn (STUN/TURN) | UDP + TCP |
-| 5349 | Coturn (TLS) | TCP |
-| 49152-65535 | TURN Relay Range | UDP |
+| 49152-49201 | TURN Relay Range (50 ports) | UDP |
 
 ## Environment Variables
 

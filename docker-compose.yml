@@ -65,9 +65,10 @@ services:
     image: coturn/coturn:4.6-alpine
     restart: unless-stopped
     ports:
+      # STUN/TURN signaling only + 50 UDP relay ports (Dokploy-safe; avoid 16k mappings)
       - "3478:3478"
       - "3478:3478/udp"
-      - "49152-65535:49152-65535/udp"
+      - "49152-49201:49152-49201/udp"
     environment:
       TURN_REALM: ${DOMAIN:-localhost}
       TURN_USERNAME: ${TURN_USERNAME:-rdturnuser}
@@ -78,7 +79,7 @@ services:
       - --user=${TURN_USERNAME:-rdturnuser}:${TURN_PASSWORD:-rdturnpass}
       - --external-ip=${PUBLIC_IP:-auto}
       - --min-port=49152
-      - --max-port=65535
+      - --max-port=49201
       - --listening-port=3478
       - --no-multicast-peers
       - --verbose

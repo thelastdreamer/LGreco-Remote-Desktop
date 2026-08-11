@@ -26,6 +26,6 @@
   "ports": [
     { "port": 8080, "serviceName": "api", "protocol": "http" },
     { "port": 3478, "serviceName": "coturn", "protocol": "both" },
-    { "port": "49152-65535", "serviceName": "coturn", "protocol": "udp" }
+    { "port": "49152-49201", "serviceName": "coturn", "protocol": "udp" }
   ]
 }
